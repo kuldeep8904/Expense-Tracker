@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ExpenseIQ – Smart Expense Tracker</title>
+  <meta name="description"
+    content="A smart personal expense tracker with analytics, budget management, and financial insights." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+</head>
+
+<body>
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <span class="logo-icon">💰</span>
+      <span class="logo-text">ExpenseIQ</span>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="#" class="nav-item active" data-page="dashboard" id="nav-dashboard">
+        <span class="nav-icon">📊</span><span>Dashboard</span>
+      </a>
+      <a href="#" class="nav-item" data-page="expenses" id="nav-expenses">
+        <span class="nav-icon">💳</span><span>Expenses</span>
+      </a>
+      <a href="#" class="nav-item" data-page="budgets" id="nav-budgets">
+        <span class="nav-icon">🎯</span><span>Budgets</span>
+      </a>
+      <a href="#" class="nav-item" data-page="insights" id="nav-insights">
+        <span class="nav-icon">🧠</span><span>Smart Insights</span>
+      </a>
+      <a href="#" class="nav-item" data-page="export" id="nav-export">
+        <span class="nav-icon">📤</span><span>Export</span>
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+        <span id="themeIcon">☀️</span>
+        <span id="themeLabel">Light Mode</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- Mobile Header -->
+  <header class="mobile-header">
+    <button class="hamburger" id="hamburger">☰</button>
+    <span class="mobile-logo">💰 ExpenseIQ</span>
+    <button class="theme-toggle-mobile" id="themeToggleMobile">☀️</button>
+  </header>
+
+  <!-- Main Content -->
+  <main class="main-content" id="mainContent">
+
+    <!-- ========== DASHBOARD PAGE ========== -->
+    <section class="page active" id="page-dashboard">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Dashboard</h1>
+          <p class="page-subtitle" id="dashboardDate"></p>
+        </div>
+        <button class="btn btn-primary" id="addExpenseBtn">+ Add Expense</button>
+      </div>
+
+      <!-- Stats Cards -->
+      <div class="stats-grid">
+        <div class="stat-card card-blue">
+          <div class="stat-icon">💸</div>
+          <div class="stat-info">
+            <span class="stat-label">This Month</span>
+            <span class="stat-value" id="totalMonthly">₹0</span>
+          </div>
+        </div>
+        <div class="stat-card card-purple">
+          <div class="stat-icon">📅</div>
+          <div class="stat-info">
+            <span class="stat-label">This Week</span>
+            <span class="stat-value" id="totalWeekly">₹0</span>
+          </div>
+        </div>
+        <div class="stat-card card-orange">
+          <div class="stat-icon">🏆</div>
+          <div class="stat-info">
+            <span class="stat-label">Top Category</span>
+            <span class="stat-value" id="topCategory">–</span>
+          </div>
+        </div>
+        <div class="stat-card card-green">
+          <div class="stat-icon">🗓️</div>
+          <div class="stat-info">
+            <span class="stat-label">Today</span>
+            <span class="stat-value" id="totalToday">₹0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Charts Row -->
+      <div class="charts-row">
+        <div class="chart-card">
+          <h2 class="chart-title">Category Breakdown</h2>
+          <div class="chart-wrapper pie-wrapper">
+            <canvas id="pieChart"></canvas>
+          </div>
+        </div>
+        <div class="chart-card wide">
+          <h2 class="chart-title">Monthly Trend</h2>
+          <div class="chart-wrapper">
+            <canvas id="barChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Weekly Trend -->
+      <div class="chart-card full-width">
+        <h2 class="chart-title">Weekly Spending</h2>
+        <div class="chart-wrapper">
+          <canvas id="lineChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Recent Expenses -->
+      <div class="card full-width">
+        <div class="card-header">
+          <h2 class="chart-title">Recent Expenses</h2>
+          <a href="#" class="link" data-page="expenses">View All →</a>
+        </div>
+        <div id="recentExpenses" class="expense-list"></div>
+      </div>
+    </section>
+
+    <!-- ========== EXPENSES PAGE ========== -->
+    <section class="page" id="page-expenses">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Expenses</h1>
+          <p class="page-subtitle">Manage all your expenses</p>
+        </div>
+        <button class="btn btn-primary" id="addExpenseBtn2">+ Add Expense</button>
+      </div>
+
+      <!-- Filters -->
+      <div class="filters-bar">
+        <input type="text" id="searchInput" class="filter-input" placeholder="🔍 Search expenses..." />
+        <select id="filterCategory" class="filter-select">
+          <option value="">All Categories</option>
+          <option value="Food">🍕 Food</option>
+          <option value="Travel">✈️ Travel</option>
+          <option value="Shopping">🛍️ Shopping</option>
+          <option value="Bills">📄 Bills</option>
+          <option value="Entertainment">🎬 Entertainment</option>
+          <option value="Health">❤️ Health</option>
+          <option value="Education">📚 Education</option>
+          <option value="Other">📦 Other</option>
+        </select>
+        <input type="date" id="filterDateFrom" class="filter-input" placeholder="From date" />
+        <input type="date" id="filterDateTo" class="filter-input" placeholder="To date" />
+        <input type="number" id="filterAmtMin" class="filter-input" placeholder="Min ₹" />
+        <input type="number" id="filterAmtMax" class="filter-input" placeholder="Max ₹" />
+        <button class="btn btn-outline" id="clearFiltersBtn">Clear</button>
+      </div>
+
+      <div id="expenseTableContainer">
+        <table class="expense-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Description</th>
+              <th>Category</th>
+              <th>Amount</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="expenseTableBody"></tbody>
+        </table>
+        <div id="noExpenses" class="empty-state" style="display:none">
+          <span>🧾</span>
+          <p>No expenses found. Add your first expense!</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== BUDGETS PAGE ========== -->
+    <section class="page" id="page-budgets">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Budget Management</h1>
+          <p class="page-subtitle">Set and track monthly budgets per category</p>
+        </div>
+      </div>
+      <div id="budgetCards" class="budget-grid"></div>
+    </section>
+
+    <!-- ========== INSIGHTS PAGE ========== -->
+    <section class="page" id="page-insights">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Smart Insights</h1>
+          <p class="page-subtitle">AI-powered financial analysis</p>
+        </div>
+      </div>
+      <div id="insightsList" class="insights-list"></div>
+    </section>
+
+    <!-- ========== EXPORT PAGE ========== -->
+    <section class="page" id="page-export">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Export Data</h1>
+          <p class="page-subtitle">Download your expense reports</p>
+        </div>
+      </div>
+      <div class="export-grid">
+        <div class="export-card">
+          <div class="export-icon">📊</div>
+          <h3>Export to CSV</h3>
+          <p>Download all expenses as a spreadsheet-compatible CSV file.</p>
+          <div class="export-filters">
+            <select id="exportMonth" class="filter-select">
+              <option value="">All Time</option>
+            </select>
+            <select id="exportCategory" class="filter-select">
+              <option value="">All Categories</option>
+              <option value="Food">Food</option>
+              <option value="Travel">Travel</option>
+              <option value="Shopping">Shopping</option>
+              <option value="Bills">Bills</option>
+              <option value="Entertainment">Entertainment</option>
+              <option value="Health">Health</option>
+              <option value="Education">Education</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" id="exportCSVBtn">⬇ Download CSV</button>
+        </div>
+        <div class="export-card">
+          <div class="export-icon">📄</div>
+          <h3>Export to PDF</h3>
+          <p>Generate a beautifully formatted PDF report of your expenses.</p>
+          <div class="export-filters">
+            <select id="exportMonthPDF" class="filter-select">
+              <option value="">All Time</option>
+            </select>
+            <select id="exportCategoryPDF" class="filter-select">
+              <option value="">All Categories</option>
+              <option value="Food">Food</option>
+              <option value="Travel">Travel</option>
+              <option value="Shopping">Shopping</option>
+              <option value="Bills">Bills</option>
+              <option value="Entertainment">Entertainment</option>
+              <option value="Health">Health</option>
+              <option value="Education">Education</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" id="exportPDFBtn">⬇ Download PDF</button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ========== ADD/EDIT MODAL ========== -->
+  <div class="modal-overlay" id="expenseModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modalTitle">Add Expense</h2>
+        <button class="modal-close" id="modalClose">✕</button>
+      </div>
+      <form id="expenseForm" class="modal-form">
+        <input type="hidden" id="expenseId" />
+        <div class="form-group">
+          <label for="expenseDesc">Description *</label>
+          <input type="text" id="expenseDesc" placeholder="e.g. Lunch at restaurant" required />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="expenseAmount">Amount (₹) *</label>
+            <input type="number" id="expenseAmount" placeholder="0.00" min="0.01" step="0.01" required />
+          </div>
+          <div class="form-group">
+            <label for="expenseDate">Date *</label>
+            <input type="date" id="expenseDate" required />
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="expenseCategory">Category *</label>
+          <select id="expenseCategory" required>
+            <option value="">Select a category</option>
+            <option value="Food">🍕 Food</option>
+            <option value="Travel">✈️ Travel</option>
+            <option value="Shopping">🛍️ Shopping</option>
+            <option value="Bills">📄 Bills</option>
+            <option value="Entertainment">🎬 Entertainment</option>
+            <option value="Health">❤️ Health</option>
+            <option value="Education">📚 Education</option>
+            <option value="Other">📦 Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="expenseNote">Note (optional)</label>
+          <textarea id="expenseNote" placeholder="Any additional notes..." rows="2"></textarea>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-outline" id="cancelBtn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="saveExpenseBtn">Save Expense</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Budget Edit Modal -->
+  <div class="modal-overlay" id="budgetModal">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2 id="budgetModalTitle">Set Budget</h2>
+        <button class="modal-close" id="budgetModalClose">✕</button>
+      </div>
+      <form id="budgetForm" class="modal-form">
+        <input type="hidden" id="budgetCategory" />
+        <div class="form-group">
+          <label for="budgetAmount">Monthly Budget (₹)</label>
+          <input type="number" id="budgetAmount" placeholder="0.00" min="0" step="0.01" required />
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-outline" id="cancelBudgetBtn">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Budget</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast"></div>
+
+  <script src="js/data.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/insights.js"></script>
+  <script src="js/export.js"></script>
+  <script src="js/app.js"></script>
+</body>
+
+</html>
