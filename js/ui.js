@@ -1,6 +1,19 @@
-/* js/ui.js — UI rendering and DOM helpers */
+/* js/ui.js — UI rendering and DOM helpers (async, with month selector state) */
 
-/* ---- Toast ---- */
+/* =========================================================
+   Dashboard Month State
+   ========================================================= */
+let dashboardYear  = new Date().getFullYear();
+let dashboardMonth = new Date().getMonth(); // 0-indexed
+
+function setDashboardMonth(year, month) {
+  dashboardYear  = year;
+  dashboardMonth = month;
+}
+
+/* =========================================================
+   Utilities
+   ========================================================= */
 function showToast(msg, type = 'info') {
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -8,23 +21,30 @@ function showToast(msg, type = 'info') {
   setTimeout(() => { t.className = 'toast'; }, 3000);
 }
 
-/* ---- Format currency ---- */
 function formatCurrency(n) {
   return '₹' + parseFloat(n).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
-/* ---- Format date ---- */
 function formatDate(dateStr) {
   const d = new Date(dateStr + 'T00:00:00');
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-/* ---- Category CSS class ---- */
 function catClass(cat) {
-  return 'cat-' + cat.toLowerCase().replace(/\s/g,'');
+  return 'cat-' + cat.toLowerCase().replace(/\s/g, '');
 }
 
-/* ---- Render expense list item (dashboard) ---- */
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g,  '&amp;')
+    .replace(/</g,  '&lt;')
+    .replace(/>/g,  '&gt;')
+    .replace(/"/g,  '&quot;');
+}
+
+/* =========================================================
+   Expense Item (dashboard list)
+   ========================================================= */
 function renderExpenseItem(expense) {
   const meta = getCatMeta(expense.category);
   return `
@@ -38,7 +58,9 @@ function renderExpenseItem(expense) {
     </div>`;
 }
 
-/* ---- Render expense table row ---- */
+/* =========================================================
+   Expense Table Row
+   ========================================================= */
 function renderTableRow(expense) {
   const meta = getCatMeta(expense.category);
   return `
@@ -61,23 +83,37 @@ function renderTableRow(expense) {
     </tr>`;
 }
 
-/* ---- Render dashboard recent expenses ---- */
-function renderRecentExpenses() {
+/* =========================================================
+   Dashboard: Recent Expenses (filtered to selected month)
+   ========================================================= */
+async function renderRecentExpenses() {
   const container = document.getElementById('recentExpenses');
-  const all = loadExpenses().sort((a,b) => new Date(b.date) - new Date(a.date)).slice(0,6);
-  if (!all.length) {
-    container.innerHTML = '<div class="empty-state"><span>🧾</span><p>No expenses yet. Add your first one!</p></div>';
+  const all = await loadExpenses();
+  const filtered = all
+    .filter(e => {
+      const [y, m] = e.date.split('-').map(Number);
+      return y === dashboardYear && (m - 1) === dashboardMonth;
+    })
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .slice(0, 6);
+
+  if (!filtered.length) {
+    const now = new Date();
+    const isCurrent = dashboardYear === now.getFullYear() && dashboardMonth === now.getMonth();
+    container.innerHTML = `<div class="empty-state"><span>🧾</span><p>${isCurrent ? 'No expenses yet. Add your first one!' : 'No expenses recorded for this month.'}</p></div>`;
     return;
   }
-  container.innerHTML = all.map(renderExpenseItem).join('');
+  container.innerHTML = filtered.map(renderExpenseItem).join('');
 }
 
-/* ---- Render full expenses table with filters ---- */
-function renderExpenseTable(filters = {}) {
+/* =========================================================
+   Full Expense Table with Filters
+   ========================================================= */
+async function renderExpenseTable(filters = {}) {
   const tbody = document.getElementById('expenseTableBody');
   const noEl  = document.getElementById('noExpenses');
 
-  let list = loadExpenses().sort((a,b) => new Date(b.date) - new Date(a.date));
+  let list = (await loadExpenses()).sort((a, b) => new Date(b.date) - new Date(a.date));
 
   if (filters.search) {
     const q = filters.search.toLowerCase();
@@ -102,12 +138,14 @@ function renderExpenseTable(filters = {}) {
   }
 }
 
-/* ---- Render budget cards ---- */
-function renderBudgetCards() {
+/* =========================================================
+   Budget Cards
+   ========================================================= */
+async function renderBudgetCards() {
   const container = document.getElementById('budgetCards');
-  const budgets   = loadBudgets();
+  const budgets   = await loadBudgets();
   const now       = new Date();
-  const monthly   = getMonthlyExpenses(now.getFullYear(), now.getMonth());
+  const monthly   = await getMonthlyExpenses(now.getFullYear(), now.getMonth());
   const catTotals = getCategoryTotals(monthly);
 
   container.innerHTML = CATEGORIES.map(cat => {
@@ -144,21 +182,45 @@ function renderBudgetCards() {
   }).join('');
 }
 
-/* ---- Render Dashboard stats ---- */
-function renderDashboardStats() {
-  const now  = new Date();
-  const yr   = now.getFullYear(), mo = now.getMonth();
+/* =========================================================
+   Month Selector UI Sync
+   ========================================================= */
+function updateMonthSelectorUI() {
+  const picker = document.getElementById('dashboardMonthPicker');
+  if (picker) {
+    picker.value = `${dashboardYear}-${String(dashboardMonth + 1).padStart(2, '0')}`;
+  }
 
-  const monthly  = getMonthlyExpenses(yr, mo);
-  const weekly   = getWeeklyExpenses();
-  const today    = getTodayExpenses();
+  /* Disable next-month button when already on current month */
+  const nextBtn = document.getElementById('nextMonthBtn');
+  if (nextBtn) {
+    const now = new Date();
+    const atCurrentMonth = dashboardYear === now.getFullYear() && dashboardMonth === now.getMonth();
+    nextBtn.disabled = atCurrentMonth;
+    nextBtn.style.opacity = atCurrentMonth ? '0.35' : '1';
+  }
+}
 
-  const totalM = monthly.reduce((s,e) => s + parseFloat(e.amount), 0);
-  const totalW = weekly.reduce((s,e)  => s + parseFloat(e.amount), 0);
-  const totalT = today.reduce((s,e)   => s + parseFloat(e.amount), 0);
+/* =========================================================
+   Dashboard Stats
+   ========================================================= */
+async function renderDashboardStats() {
+  const now = new Date();
+  const isCurrentMonth = dashboardYear === now.getFullYear() && dashboardMonth === now.getMonth();
 
+  const monthly  = await getMonthlyExpenses(dashboardYear, dashboardMonth);
+  const totalM   = monthly.reduce((s, e) => s + parseFloat(e.amount), 0);
   const catTotals = getCategoryTotals(monthly);
-  const topCat = Object.entries(catTotals).sort((a,b) => b[1]-a[1])[0];
+  const topCat   = Object.entries(catTotals).sort((a, b) => b[1] - a[1])[0];
+
+  /* Weekly / Today only make sense for the current month */
+  let totalW = 0, totalT = 0;
+  if (isCurrentMonth) {
+    const weekly = await getWeeklyExpenses();
+    const today  = await getTodayExpenses();
+    totalW = weekly.reduce((s, e) => s + parseFloat(e.amount), 0);
+    totalT = today.reduce((s, e) => s + parseFloat(e.amount), 0);
+  }
 
   document.getElementById('totalMonthly').textContent = formatCurrency(totalM);
   document.getElementById('totalWeekly').textContent  = formatCurrency(totalW);
@@ -166,30 +228,42 @@ function renderDashboardStats() {
   document.getElementById('topCategory').textContent  = topCat && topCat[1] > 0
     ? `${getCatMeta(topCat[0]).icon} ${topCat[0]}` : '–';
 
-  const d = new Date();
+  /* Update "This Month" label to reflect selected period */
+  const monthLabelEl = document.getElementById('selectedMonthLabel');
+  if (monthLabelEl) {
+    const selDate = new Date(dashboardYear, dashboardMonth, 1);
+    monthLabelEl.textContent = isCurrentMonth
+      ? 'This Month'
+      : selDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+  }
+
+  /* Date subtitle */
   document.getElementById('dashboardDate').textContent =
-    d.toLocaleDateString('en-IN', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+    now.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 }
 
-/* ---- Modal helpers ---- */
+/* =========================================================
+   Modal Helpers
+   ========================================================= */
 function openAddModal() {
   document.getElementById('modalTitle').textContent = 'Add Expense';
   document.getElementById('expenseForm').reset();
-  document.getElementById('expenseId').value = '';
-  document.getElementById('expenseDate').value = new Date().toISOString().slice(0,10);
+  document.getElementById('expenseId').value   = '';
+  document.getElementById('expenseDate').value = new Date().toISOString().slice(0, 10);
   document.getElementById('expenseModal').classList.add('active');
 }
 
-function openEditModal(id) {
-  const exp = loadExpenses().find(e => e.id === id);
+async function openEditModal(id) {
+  const all = await loadExpenses();
+  const exp = all.find(e => e.id === id);
   if (!exp) return;
-  document.getElementById('modalTitle').textContent = 'Edit Expense';
-  document.getElementById('expenseId').value      = exp.id;
-  document.getElementById('expenseDesc').value    = exp.description;
-  document.getElementById('expenseAmount').value  = exp.amount;
-  document.getElementById('expenseDate').value    = exp.date;
-  document.getElementById('expenseCategory').value= exp.category;
-  document.getElementById('expenseNote').value    = exp.note || '';
+  document.getElementById('modalTitle').textContent  = 'Edit Expense';
+  document.getElementById('expenseId').value         = exp.id;
+  document.getElementById('expenseDesc').value       = exp.description;
+  document.getElementById('expenseAmount').value     = exp.amount;
+  document.getElementById('expenseDate').value       = exp.date;
+  document.getElementById('expenseCategory').value   = exp.category;
+  document.getElementById('expenseNote').value       = exp.note || '';
   document.getElementById('expenseModal').classList.add('active');
 }
 
@@ -197,8 +271,8 @@ function closeModal() {
   document.getElementById('expenseModal').classList.remove('active');
 }
 
-function openBudgetModal(category) {
-  const budgets = loadBudgets();
+async function openBudgetModal(category) {
+  const budgets = await loadBudgets();
   document.getElementById('budgetModalTitle').textContent = `Set Budget – ${category}`;
   document.getElementById('budgetCategory').value = category;
   document.getElementById('budgetAmount').value   = budgets[category] || '';
@@ -209,15 +283,17 @@ function closeBudgetModal() {
   document.getElementById('budgetModal').classList.remove('active');
 }
 
-/* ---- Delete with inline confirm ---- */
-function deleteExpenseUI(id) {
+/* =========================================================
+   Delete with Inline Confirm
+   ========================================================= */
+async function deleteExpenseUI(id) {
   const row = document.querySelector(`[data-delete-id="${id}"]`);
   if (row && !row.dataset.confirmed) {
     row.dataset.confirmed = '1';
     row.textContent = '✓ Sure?';
-    row.style.background = 'rgba(248,113,113,0.15)';
+    row.style.background  = 'rgba(248,113,113,0.15)';
     row.style.borderColor = 'var(--accent-red)';
-    row.style.color = 'var(--accent-red)';
+    row.style.color       = 'var(--accent-red)';
     setTimeout(() => {
       if (row && row.dataset.confirmed) {
         delete row.dataset.confirmed;
@@ -227,44 +303,42 @@ function deleteExpenseUI(id) {
     }, 2500);
     return;
   }
-  deleteExpense(id);
+  await deleteExpense(id);
   refreshAll();
   showToast('Expense deleted', 'error');
 }
 
-/* ---- Escape HTML ---- */
-function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g,'&amp;')
-    .replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;');
-}
-
-/* ---- Populate export month dropdowns ---- */
-function populateExportMonths() {
-  const expenses = loadExpenses();
-  const months = [...new Set(expenses.map(e => e.date.slice(0,7)))].sort().reverse();
-  ['exportMonth','exportMonthPDF'].forEach(id => {
-    const sel = document.getElementById(id);
+/* =========================================================
+   Export Month Dropdowns
+   ========================================================= */
+async function populateExportMonths() {
+  const expenses = await loadExpenses();
+  const months   = [...new Set(expenses.map(e => e.date.slice(0, 7)))].sort().reverse();
+  ['exportMonth', 'exportMonthPDF'].forEach(id => {
+    const sel  = document.getElementById(id);
     const opts = months.map(m => {
-      const [y,mo] = m.split('-');
-      const label = new Date(y, mo-1).toLocaleString('default', {month:'long',year:'numeric'});
+      const [y, mo] = m.split('-');
+      const label   = new Date(y, mo - 1).toLocaleString('default', { month: 'long', year: 'numeric' });
       return `<option value="${m}">${label}</option>`;
     });
     sel.innerHTML = '<option value="">All Time</option>' + opts.join('');
   });
 }
 
-/* ---- Master refresh ---- */
-function refreshAll() {
-  renderDashboardStats();
-  renderRecentExpenses();
-  renderExpenseTable(getCurrentFilters());
-  renderBudgetCards();
-  renderInsights();
-  refreshCharts();
-  populateExportMonths();
+/* =========================================================
+   Master Refresh
+   ========================================================= */
+async function refreshAll() {
+  updateMonthSelectorUI();
+  await Promise.all([
+    renderDashboardStats(),
+    renderRecentExpenses(),
+    renderExpenseTable(getCurrentFilters()),
+    renderBudgetCards(),
+    renderInsights(),
+    refreshCharts(),
+    populateExportMonths(),
+  ]);
 }
 
 function getCurrentFilters() {

@@ -1,33 +1,33 @@
-/* js/export.js — CSV and PDF export */
+/* js/export.js — CSV and PDF export (async) */
 
-function getFilteredForExport(month, category) {
-  let list = loadExpenses().sort((a,b) => new Date(a.date) - new Date(b.date));
+async function getFilteredForExport(month, category) {
+  let list = (await loadExpenses()).sort((a, b) => new Date(a.date) - new Date(b.date));
   if (month)    list = list.filter(e => e.date.startsWith(month));
   if (category) list = list.filter(e => e.category === category);
   return list;
 }
 
 /* ---- CSV Export ---- */
-function exportCSV() {
+async function exportCSV() {
   const month    = document.getElementById('exportMonth').value;
   const category = document.getElementById('exportCategory').value;
-  const list     = getFilteredForExport(month, category);
+  const list     = await getFilteredForExport(month, category);
 
   if (!list.length) { showToast('No expenses to export', 'error'); return; }
 
-  const headers = ['Date','Description','Category','Amount (₹)','Note'];
+  const headers = ['Date', 'Description', 'Category', 'Amount (₹)', 'Note'];
   const rows    = list.map(e => [
     e.date,
-    `"${(e.description||'').replace(/"/g,'""')}"`,
+    `"${(e.description || '').replace(/"/g, '""')}"`,
     e.category,
     parseFloat(e.amount).toFixed(2),
-    `"${(e.note||'').replace(/"/g,'""')}"`,
+    `"${(e.note || '').replace(/"/g, '""')}"`,
   ]);
 
-  const total = list.reduce((s,e) => s + parseFloat(e.amount), 0);
-  rows.push(['','','TOTAL', total.toFixed(2), '']);
+  const total = list.reduce((s, e) => s + parseFloat(e.amount), 0);
+  rows.push(['', '', 'TOTAL', total.toFixed(2), '']);
 
-  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  const csv  = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
@@ -39,10 +39,10 @@ function exportCSV() {
 }
 
 /* ---- PDF Export ---- */
-function exportPDF() {
+async function exportPDF() {
   const month    = document.getElementById('exportMonthPDF').value;
   const category = document.getElementById('exportCategoryPDF').value;
-  const list     = getFilteredForExport(month, category);
+  const list     = await getFilteredForExport(month, category);
 
   if (!list.length) { showToast('No expenses to export', 'error'); return; }
 
@@ -59,14 +59,14 @@ function exportPDF() {
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(139, 144, 184);
-  const subtitle = `Report: ${month ? new Date(month + '-01').toLocaleString('default',{month:'long',year:'numeric'}) : 'All Time'} | Category: ${category || 'All'}`;
+  const subtitle = `Report: ${month ? new Date(month + '-01').toLocaleString('default', { month: 'long', year: 'numeric' }) : 'All Time'} | Category: ${category || 'All'}`;
   doc.text(subtitle, 14, 26);
-  doc.text(`Generated: ${new Date().toLocaleDateString('en-IN',{dateStyle:'long'})}`, 14, 33);
+  doc.text(`Generated: ${new Date().toLocaleDateString('en-IN', { dateStyle: 'long' })}`, 14, 33);
 
   /* Summary box */
-  const total = list.reduce((s,e) => s + parseFloat(e.amount), 0);
+  const total     = list.reduce((s, e) => s + parseFloat(e.amount), 0);
   const catTotals = getCategoryTotals(list);
-  const topCat = Object.entries(catTotals).sort((a,b) => b[1]-a[1])[0];
+  const topCat    = Object.entries(catTotals).sort((a, b) => b[1] - a[1])[0];
 
   doc.setFillColor(245, 247, 255);
   doc.roundedRect(14, 48, 182, 26, 3, 3, 'F');
@@ -77,29 +77,29 @@ function exportPDF() {
   doc.text('TRANSACTIONS', 90, 56);
   doc.text('TOP CATEGORY', 155, 56);
   doc.setFontSize(13);
-  doc.text(`Rs. ${total.toLocaleString('en-IN',{minimumFractionDigits:2})}`, 22, 66);
+  doc.text(`Rs. ${total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 22, 66);
   doc.text(`${list.length}`, 90, 66);
   doc.text(topCat ? topCat[0] : '-', 155, 66);
 
   /* Table */
   const tableRows = list.map(e => [
     e.date,
-    e.description.substring(0,30),
+    e.description.substring(0, 30),
     e.category,
-    `Rs. ${parseFloat(e.amount).toLocaleString('en-IN',{minimumFractionDigits:2})}`,
-    (e.note || '').substring(0,20),
+    `Rs. ${parseFloat(e.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+    (e.note || '').substring(0, 20),
   ]);
 
   doc.autoTable({
     startY: 82,
-    head: [['Date','Description','Category','Amount','Note']],
+    head: [['Date', 'Description', 'Category', 'Amount', 'Note']],
     body: tableRows,
-    foot: [['','','Total', `Rs. ${total.toLocaleString('en-IN',{minimumFractionDigits:2})}`, '']],
+    foot: [['', '', 'Total', `Rs. ${total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, '']],
     theme: 'grid',
-    headStyles: { fillColor: [108,140,255], textColor: 255, fontStyle: 'bold', fontSize: 9 },
-    footStyles: { fillColor: [30,34,53], textColor: [240,242,255], fontStyle: 'bold' },
-    bodyStyles: { fontSize: 8.5, textColor: [30,34,53] },
-    alternateRowStyles: { fillColor: [245,247,255] },
+    headStyles:         { fillColor: [108, 140, 255], textColor: 255, fontStyle: 'bold', fontSize: 9 },
+    footStyles:         { fillColor: [30, 34, 53], textColor: [240, 242, 255], fontStyle: 'bold' },
+    bodyStyles:         { fontSize: 8.5, textColor: [30, 34, 53] },
+    alternateRowStyles: { fillColor: [245, 247, 255] },
     columnStyles: {
       0: { cellWidth: 24 },
       1: { cellWidth: 58 },
@@ -115,7 +115,7 @@ function exportPDF() {
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
     doc.setFontSize(8);
-    doc.setTextColor(139,144,184);
+    doc.setTextColor(139, 144, 184);
     doc.text(`ExpenseIQ Report — Page ${i} of ${pageCount}`, 14, 290);
   }
 

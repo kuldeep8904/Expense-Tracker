@@ -1,16 +1,16 @@
-/* js/charts.js — Chart.js chart management */
+/* js/charts.js — Chart.js chart management (async, month-aware) */
 
-let pieChartInst = null;
-let barChartInst = null;
+let pieChartInst  = null;
+let barChartInst  = null;
 let lineChartInst = null;
 
 function getChartDefaults() {
   const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
   return {
-    gridColor:  isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-    textColor:  isDark ? '#8b90b8' : '#5a6080',
-    tooltipBg:  isDark ? '#1e2235' : '#ffffff',
-    tooltipText:isDark ? '#f0f2ff' : '#1a1d2e',
+    gridColor:   isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+    textColor:   isDark ? '#8b90b8' : '#5a6080',
+    tooltipBg:   isDark ? '#1e2235' : '#ffffff',
+    tooltipText: isDark ? '#f0f2ff' : '#1a1d2e',
   };
 }
 
@@ -25,12 +25,14 @@ const CAT_COLORS = {
   Other:         '#94a3b8',
 };
 
-function buildPieChart() {
+/* =========================================================
+   Pie / Doughnut — Category Breakdown for selected month
+   ========================================================= */
+async function buildPieChart() {
   const ctx = document.getElementById('pieChart');
   if (!ctx) return;
 
-  const now     = new Date();
-  const monthly = getMonthlyExpenses(now.getFullYear(), now.getMonth());
+  const monthly = await getMonthlyExpenses(dashboardYear, dashboardMonth);
   const totals  = getCategoryTotals(monthly);
   const cats    = CATEGORIES.filter(c => totals[c.name] > 0);
   const d       = getChartDefaults();
@@ -38,12 +40,19 @@ function buildPieChart() {
 
   if (pieChartInst) pieChartInst.destroy();
 
+  const selDate    = new Date(dashboardYear, dashboardMonth, 1);
+  const now        = new Date();
+  const isCurrent  = dashboardYear === now.getFullYear() && dashboardMonth === now.getMonth();
+  const emptyLabel = isCurrent
+    ? 'No expenses this month'
+    : `No expenses in ${selDate.toLocaleString('default', { month: 'long', year: 'numeric' })}`;
+
   pieChartInst = new Chart(ctx, {
     type: 'doughnut',
     data: {
       labels: isEmpty ? ['No data'] : cats.map(c => c.name),
       datasets: [{
-        data: isEmpty ? [1] : cats.map(c => totals[c.name]),
+        data:            isEmpty ? [1] : cats.map(c => totals[c.name]),
         backgroundColor: isEmpty ? ['rgba(90,95,122,0.2)'] : cats.map(c => CAT_COLORS[c.name] + 'cc'),
         borderColor:     isEmpty ? ['rgba(90,95,122,0.4)'] : cats.map(c => CAT_COLORS[c.name]),
         borderWidth: 2,
@@ -69,13 +78,11 @@ function buildPieChart() {
         tooltip: {
           enabled: !isEmpty,
           backgroundColor: d.tooltipBg,
-          titleColor: d.tooltipText,
-          bodyColor: d.textColor,
-          borderColor: 'rgba(255,255,255,0.1)',
+          titleColor:      d.tooltipText,
+          bodyColor:       d.textColor,
+          borderColor:     'rgba(255,255,255,0.1)',
           borderWidth: 1,
-          callbacks: {
-            label: ctx => ` ${formatCurrency(ctx.raw)}`,
-          }
+          callbacks: { label: ctx => ` ${formatCurrency(ctx.raw)}` }
         }
       }
     },
@@ -84,24 +91,38 @@ function buildPieChart() {
       afterDraw(chart) {
         const { ctx: c, chartArea: { width, height, left, top } } = chart;
         c.save();
-        c.fillStyle = d.textColor;
-        c.font = '500 13px Inter, sans-serif';
-        c.textAlign = 'center';
+        c.fillStyle    = d.textColor;
+        c.font         = '500 13px Inter, sans-serif';
+        c.textAlign    = 'center';
         c.textBaseline = 'middle';
-        c.fillText('No expenses this month', left + width / 2, top + height / 2);
+        c.fillText(emptyLabel, left + width / 2, top + height / 2);
         c.restore();
       }
     }] : [],
   });
 }
 
-
-function buildBarChart() {
+/* =========================================================
+   Bar — Monthly Trend (last 6 months, highlights selected)
+   ========================================================= */
+async function buildBarChart() {
   const ctx = document.getElementById('barChart');
   if (!ctx) return;
 
-  const data = getLast6MonthsData();
+  const data = await getLast6MonthsData();
   const d    = getChartDefaults();
+
+  /* Highlight the bar of the currently selected month */
+  const bgColors  = data.map(item =>
+    item.year === dashboardYear && item.month === dashboardMonth
+      ? 'rgba(167,139,250,0.85)'
+      : 'rgba(108,140,255,0.70)'
+  );
+  const bdColors  = data.map(item =>
+    item.year === dashboardYear && item.month === dashboardMonth
+      ? '#a78bfa'
+      : '#6c8cff'
+  );
 
   if (barChartInst) barChartInst.destroy();
 
@@ -110,10 +131,10 @@ function buildBarChart() {
     data: {
       labels: data.map(d => d.label),
       datasets: [{
-        label: 'Monthly Spending',
-        data: data.map(d => d.total),
-        backgroundColor: 'rgba(108,140,255,0.7)',
-        borderColor: '#6c8cff',
+        label:           'Monthly Spending',
+        data:            data.map(d => d.total),
+        backgroundColor: bgColors,
+        borderColor:     bdColors,
         borderWidth: 2,
         borderRadius: 8,
         borderSkipped: false,
@@ -126,21 +147,21 @@ function buildBarChart() {
         legend: { display: false },
         tooltip: {
           backgroundColor: d.tooltipBg,
-          titleColor: d.tooltipText,
-          bodyColor: d.textColor,
+          titleColor:      d.tooltipText,
+          bodyColor:       d.textColor,
           callbacks: { label: ctx => ` ${formatCurrency(ctx.raw)}` }
         }
       },
       scales: {
         x: {
-          grid: { color: d.gridColor },
+          grid:  { color: d.gridColor },
           ticks: { color: d.textColor, font: { family: 'Inter', size: 11 } }
         },
         y: {
-          grid: { color: d.gridColor },
+          grid:  { color: d.gridColor },
           ticks: {
             color: d.textColor,
-            font: { family: 'Inter', size: 11 },
+            font:  { family: 'Inter', size: 11 },
             callback: v => '₹' + v.toLocaleString('en-IN'),
           },
           beginAtZero: true,
@@ -150,11 +171,14 @@ function buildBarChart() {
   });
 }
 
-function buildLineChart() {
+/* =========================================================
+   Line — Daily Spending for selected month (last 7 days)
+   ========================================================= */
+async function buildLineChart() {
   const ctx = document.getElementById('lineChart');
   if (!ctx) return;
 
-  const data = getLast7DaysData();
+  const data = await getLast7DaysData(dashboardYear, dashboardMonth);
   const d    = getChartDefaults();
 
   if (lineChartInst) lineChartInst.destroy();
@@ -164,11 +188,11 @@ function buildLineChart() {
     data: {
       labels: data.map(d => d.label),
       datasets: [{
-        label: 'Daily Spending',
-        data: data.map(d => d.total),
-        borderColor: '#a78bfa',
-        backgroundColor: 'rgba(167,139,250,0.12)',
-        pointBackgroundColor: '#a78bfa',
+        label:              'Daily Spending',
+        data:               data.map(d => d.total),
+        borderColor:        '#a78bfa',
+        backgroundColor:    'rgba(167,139,250,0.12)',
+        pointBackgroundColor:'#a78bfa',
         pointRadius: 5,
         pointHoverRadius: 7,
         borderWidth: 2.5,
@@ -183,21 +207,21 @@ function buildLineChart() {
         legend: { display: false },
         tooltip: {
           backgroundColor: d.tooltipBg,
-          titleColor: d.tooltipText,
-          bodyColor: d.textColor,
+          titleColor:      d.tooltipText,
+          bodyColor:       d.textColor,
           callbacks: { label: ctx => ` ${formatCurrency(ctx.raw)}` }
         }
       },
       scales: {
         x: {
-          grid: { color: d.gridColor },
+          grid:  { color: d.gridColor },
           ticks: { color: d.textColor, font: { family: 'Inter', size: 11 } }
         },
         y: {
-          grid: { color: d.gridColor },
+          grid:  { color: d.gridColor },
           ticks: {
             color: d.textColor,
-            font: { family: 'Inter', size: 11 },
+            font:  { family: 'Inter', size: 11 },
             callback: v => '₹' + v.toLocaleString('en-IN'),
           },
           beginAtZero: true,
@@ -207,8 +231,9 @@ function buildLineChart() {
   });
 }
 
-function refreshCharts() {
-  buildPieChart();
-  buildBarChart();
-  buildLineChart();
+/* =========================================================
+   Refresh all charts
+   ========================================================= */
+async function refreshCharts() {
+  await Promise.all([buildPieChart(), buildBarChart(), buildLineChart()]);
 }

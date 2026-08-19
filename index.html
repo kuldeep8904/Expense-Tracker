@@ -66,7 +66,15 @@
           <h1 class="page-title">Dashboard</h1>
           <p class="page-subtitle" id="dashboardDate"></p>
         </div>
-        <button class="btn btn-primary" id="addExpenseBtn">+ Add Expense</button>
+        <div class="dashboard-header-right">
+          <!-- Month Selector -->
+          <div class="month-selector" id="monthSelector">
+            <button class="month-nav-btn" id="prevMonthBtn" title="Previous month">&#8249;</button>
+            <input type="month" id="dashboardMonthPicker" class="month-picker-input" title="Select month" />
+            <button class="month-nav-btn" id="nextMonthBtn" title="Next month">&#8250;</button>
+          </div>
+          <button class="btn btn-primary" id="addExpenseBtn">+ Add Expense</button>
+        </div>
       </div>
 
       <!-- Stats Cards -->
@@ -74,7 +82,7 @@
         <div class="stat-card card-blue">
           <div class="stat-icon">💸</div>
           <div class="stat-info">
-            <span class="stat-label">This Month</span>
+            <span class="stat-label" id="selectedMonthLabel">This Month</span>
             <span class="stat-value" id="totalMonthly">₹0</span>
           </div>
         </div>

@@ -1,10 +1,10 @@
-/* js/insights.js — Smart financial insights engine */
+/* js/insights.js — Smart financial insights engine (async) */
 
-function renderInsights() {
+async function renderInsights() {
   const container = document.getElementById('insightsList');
   if (!container) return;
 
-  const insights = generateInsights();
+  const insights = await generateInsights();
   if (!insights.length) {
     container.innerHTML = `
       <div class="insight-card">
@@ -27,21 +27,22 @@ function renderInsights() {
     </div>`).join('');
 }
 
-function generateInsights() {
+async function generateInsights() {
   const insights = [];
-  const now   = new Date();
-  const yr    = now.getFullYear(), mo = now.getMonth();
-  const monthly = getMonthlyExpenses(yr, mo);
-  const prevYr  = mo === 0 ? yr - 1 : yr;
-  const prevMoNum = mo === 0 ? 11 : mo - 1;
-  const prevMo  = getMonthlyExpenses(prevYr, prevMoNum);
+  const now      = new Date();
+  const yr       = now.getFullYear(), mo = now.getMonth();
 
+  const monthly = await getMonthlyExpenses(yr, mo);
   if (monthly.length < 2) return insights;
 
-  const totalNow  = monthly.reduce((s,e) => s + parseFloat(e.amount), 0);
-  const totalPrev = prevMo.reduce((s,e) => s + parseFloat(e.amount), 0);
+  const prevYr    = mo === 0 ? yr - 1 : yr;
+  const prevMoNum = mo === 0 ? 11 : mo - 1;
+  const prevMo    = await getMonthlyExpenses(prevYr, prevMoNum);
+
+  const totalNow  = monthly.reduce((s, e) => s + parseFloat(e.amount), 0);
+  const totalPrev = prevMo.reduce((s, e) => s + parseFloat(e.amount), 0);
   const catTotals = getCategoryTotals(monthly);
-  const budgets   = loadBudgets();
+  const budgets   = await loadBudgets();
 
   /* 1. Month-over-month comparison */
   if (totalPrev > 0) {
@@ -75,13 +76,13 @@ function generateInsights() {
       insights.push({
         icon: '⚡', color: 'yellow',
         title: `${cat.icon} ${cat.name} nearing budget limit`,
-        desc: `You've used ${Math.round(spent/limit*100)}% (${formatCurrency(spent)}) of your ${formatCurrency(limit)} ${cat.name} budget. Be mindful of remaining spending.`,
+        desc: `You've used ${Math.round(spent / limit * 100)}% (${formatCurrency(spent)}) of your ${formatCurrency(limit)} ${cat.name} budget. Be mindful of remaining spending.`,
       });
     }
   });
 
   /* 3. Top spending category */
-  const top = Object.entries(catTotals).sort((a,b) => b[1]-a[1])[0];
+  const top = Object.entries(catTotals).sort((a, b) => b[1] - a[1])[0];
   if (top && top[1] > 0) {
     const topPct = ((top[1] / totalNow) * 100).toFixed(0);
     const meta   = getCatMeta(top[0]);
@@ -109,12 +110,12 @@ function generateInsights() {
     insights.push({
       icon: '🎬', color: 'purple',
       title: `Entertainment spending is high`,
-      desc: `Entertainment expenses (${formatCurrency(entAmt)}) make up ${((entAmt/totalNow)*100).toFixed(0)}% of your monthly spend. Financial experts suggest keeping non-essential spending under 15%.`,
+      desc: `Entertainment expenses (${formatCurrency(entAmt)}) make up ${((entAmt / totalNow) * 100).toFixed(0)}% of your monthly spend. Financial experts suggest keeping non-essential spending under 15%.`,
     });
   }
 
   /* 6. Savings potential */
-  const topTwo = Object.entries(catTotals).sort((a,b) => b[1]-a[1]).slice(0,2);
+  const topTwo = Object.entries(catTotals).sort((a, b) => b[1] - a[1]).slice(0, 2);
   if (topTwo.length >= 2) {
     const potential = Math.round(topTwo[0][1] * 0.1 + topTwo[1][1] * 0.1);
     insights.push({

@@ -1,5 +1,9 @@
-/* js/data.js — Data layer using localStorage */
+/* js/data.js — Data layer using IndexedDB (persistent, no 5 MB cap) */
 
+const DB_NAME    = 'expenseiq_db';
+const DB_VERSION = 1;
+
+/* Legacy keys — only used during one-time migration */
 const STORAGE_KEY = 'expenseiq_expenses';
 const BUDGET_KEY  = 'expenseiq_budgets';
 
@@ -18,119 +22,225 @@ function getCatMeta(name) {
   return CATEGORIES.find(c => c.name === name) || CATEGORIES[7];
 }
 
-/* ---------- EXPENSES ---------- */
-function loadExpenses() {
+/* =========================================================
+   IndexedDB Helpers
+   ========================================================= */
+let _db = null;
+
+function openDB() {
+  if (_db) return Promise.resolve(_db);
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('expenses')) {
+        db.createObjectStore('expenses', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('budgets')) {
+        db.createObjectStore('budgets', { keyPath: 'category' });
+      }
+    };
+
+    req.onsuccess = e => { _db = e.target.result; resolve(_db); };
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+function txGetAll(store) {
+  return openDB().then(db => new Promise((resolve, reject) => {
+    const req = db.transaction(store, 'readonly').objectStore(store).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror   = () => reject(req.error);
+  }));
+}
+
+function txGet(store, key) {
+  return openDB().then(db => new Promise((resolve, reject) => {
+    const req = db.transaction(store, 'readonly').objectStore(store).get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  }));
+}
+
+function txPut(store, value) {
+  return openDB().then(db => new Promise((resolve, reject) => {
+    const req = db.transaction(store, 'readwrite').objectStore(store).put(value);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  }));
+}
+
+function txDelete(store, key) {
+  return openDB().then(db => new Promise((resolve, reject) => {
+    const req = db.transaction(store, 'readwrite').objectStore(store).delete(key);
+    req.onsuccess = () => resolve();
+    req.onerror   = () => reject(req.error);
+  }));
+}
+
+/* =========================================================
+   Migration: localStorage → IndexedDB (one-time)
+   ========================================================= */
+async function migrateFromLocalStorage() {
+  const MIG_KEY = 'expenseiq_idb_migrated_v1';
+  if (localStorage.getItem(MIG_KEY)) return;
+
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
-  } catch { return []; }
-}
+    const rawExpenses = localStorage.getItem(STORAGE_KEY);
+    if (rawExpenses) {
+      const expenses = JSON.parse(rawExpenses) || [];
+      for (const exp of expenses) await txPut('expenses', exp);
+      console.log(`[ExpenseIQ] Migrated ${expenses.length} expense(s) to IndexedDB`);
+    }
 
-function saveExpenses(list) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-}
+    const rawBudgets = localStorage.getItem(BUDGET_KEY);
+    if (rawBudgets) {
+      const budgets = JSON.parse(rawBudgets) || {};
+      for (const [category, amount] of Object.entries(budgets)) {
+        await txPut('budgets', { category, amount: parseFloat(amount) });
+      }
+      console.log('[ExpenseIQ] Migrated budgets to IndexedDB');
+    }
 
-function addExpense(expense) {
-  const list = loadExpenses();
-  expense.id = Date.now().toString();
-  expense.createdAt = new Date().toISOString();
-  list.push(expense);
-  saveExpenses(list);
-  return expense;
-}
-
-function updateExpense(id, data) {
-  const list = loadExpenses();
-  const idx = list.findIndex(e => e.id === id);
-  if (idx !== -1) {
-    list[idx] = { ...list[idx], ...data, id };
-    saveExpenses(list);
+    localStorage.setItem(MIG_KEY, '1');
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(BUDGET_KEY);
+    localStorage.removeItem('expenseiq_v2_init'); // clean up old flag
+  } catch (err) {
+    console.error('[ExpenseIQ] Migration error:', err);
   }
 }
 
-function deleteExpense(id) {
-  const list = loadExpenses().filter(e => e.id !== id);
-  saveExpenses(list);
+/* =========================================================
+   INIT — call once at app startup
+   ========================================================= */
+async function initDB() {
+  await openDB();
+  await migrateFromLocalStorage();
 }
 
-/* ---------- BUDGETS ---------- */
-function loadBudgets() {
+/* =========================================================
+   EXPENSES CRUD
+   ========================================================= */
+async function loadExpenses() {
+  try { return await txGetAll('expenses'); }
+  catch { return []; }
+}
+
+async function addExpense(expense) {
+  expense.id        = Date.now().toString();
+  expense.createdAt = new Date().toISOString();
+  await txPut('expenses', expense);
+  return expense;
+}
+
+async function updateExpense(id, data) {
+  const existing = await txGet('expenses', id);
+  if (existing) await txPut('expenses', { ...existing, ...data, id });
+}
+
+async function deleteExpense(id) {
+  await txDelete('expenses', id);
+}
+
+/* =========================================================
+   BUDGETS CRUD
+   ========================================================= */
+async function loadBudgets() {
   try {
-    return JSON.parse(localStorage.getItem(BUDGET_KEY)) || {};
+    const rows = await txGetAll('budgets');
+    const obj  = {};
+    rows.forEach(r => { obj[r.category] = r.amount; });
+    return obj;
   } catch { return {}; }
 }
 
-function saveBudgets(budgets) {
-  localStorage.setItem(BUDGET_KEY, JSON.stringify(budgets));
+async function setBudget(category, amount) {
+  await txPut('budgets', { category, amount: parseFloat(amount) });
 }
 
-function setBudget(category, amount) {
-  const budgets = loadBudgets();
-  budgets[category] = parseFloat(amount);
-  saveBudgets(budgets);
-}
-
-/* ---------- ANALYTICS HELPERS ---------- */
-function getMonthlyExpenses(year, month) {
-  return loadExpenses().filter(e => {
+/* =========================================================
+   ANALYTICS HELPERS
+   ========================================================= */
+async function getMonthlyExpenses(year, month) {
+  const all = await loadExpenses();
+  return all.filter(e => {
     const [y, m] = e.date.split('-').map(Number);
     return y === year && (m - 1) === month;
   });
 }
 
-function getTotalByMonth(year, month) {
-  return getMonthlyExpenses(year, month)
-    .reduce((sum, e) => sum + parseFloat(e.amount), 0);
+async function getTotalByMonth(year, month) {
+  const exps = await getMonthlyExpenses(year, month);
+  return exps.reduce((sum, e) => sum + parseFloat(e.amount), 0);
 }
 
-function getWeeklyExpenses() {
-  const now = new Date();
-  const startOfWeek = new Date(now);
-  startOfWeek.setDate(now.getDate() - now.getDay());
-  startOfWeek.setHours(0,0,0,0);
-  const startStr = startOfWeek.toISOString().slice(0,10);
-  return loadExpenses().filter(e => e.date >= startStr);
+async function getWeeklyExpenses() {
+  const now       = new Date();
+  const startOfWk = new Date(now);
+  startOfWk.setDate(now.getDate() - now.getDay());
+  startOfWk.setHours(0, 0, 0, 0);
+  const startStr = startOfWk.toISOString().slice(0, 10);
+  const all      = await loadExpenses();
+  return all.filter(e => e.date >= startStr);
 }
 
-function getTodayExpenses() {
-  const today = new Date().toISOString().slice(0,10);
-  return loadExpenses().filter(e => e.date === today);
+async function getTodayExpenses() {
+  const today = new Date().toISOString().slice(0, 10);
+  const all   = await loadExpenses();
+  return all.filter(e => e.date === today);
 }
 
 function getCategoryTotals(expenses) {
   const totals = {};
-  CATEGORIES.forEach(c => totals[c.name] = 0);
+  CATEGORIES.forEach(c => { totals[c.name] = 0; });
   expenses.forEach(e => {
     totals[e.category] = (totals[e.category] || 0) + parseFloat(e.amount);
   });
   return totals;
 }
 
-function getLast6MonthsData() {
-  const now = new Date();
+async function getLast6MonthsData() {
+  const now    = new Date();
   const result = [];
   for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const d     = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const label = d.toLocaleString('default', { month: 'short', year: '2-digit' });
-    const total = getTotalByMonth(d.getFullYear(), d.getMonth());
-    result.push({ label, total });
+    const total = await getTotalByMonth(d.getFullYear(), d.getMonth());
+    result.push({ label, total, year: d.getFullYear(), month: d.getMonth() });
   }
   return result;
 }
 
-function getLast7DaysData() {
-  const now = new Date();
-  const result = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(now);
-    d.setDate(now.getDate() - i);
-    const dateStr = d.toISOString().slice(0,10);
-    const label = d.toLocaleString('default', { weekday: 'short' });
-    const total = loadExpenses()
-      .filter(e => e.date === dateStr)
-      .reduce((s, e) => s + parseFloat(e.amount), 0);
-    result.push({ label, total });
+async function getLast7DaysData(year, month) {
+  const now            = new Date();
+  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
+  const all            = await loadExpenses();
+  const result         = [];
+
+  if (isCurrentMonth) {
+    /* Last 7 days up to today */
+    for (let i = 6; i >= 0; i--) {
+      const d       = new Date(now);
+      d.setDate(now.getDate() - i);
+      const dateStr = d.toISOString().slice(0, 10);
+      const label   = d.toLocaleString('default', { weekday: 'short' });
+      const total   = all.filter(e => e.date === dateStr)
+                         .reduce((s, e) => s + parseFloat(e.amount), 0);
+      result.push({ label, total });
+    }
+  } else {
+    /* Last 7 days of that month */
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    for (let day = lastDay - 6; day <= lastDay; day++) {
+      const d       = new Date(year, month, day);
+      const dateStr = d.toISOString().slice(0, 10);
+      const label   = d.toLocaleString('default', { weekday: 'short' });
+      const total   = all.filter(e => e.date === dateStr)
+                         .reduce((s, e) => s + parseFloat(e.amount), 0);
+      result.push({ label, total });
+    }
   }
   return result;
 }
-
-

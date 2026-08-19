@@ -1,26 +1,23 @@
 /* js/app.js — Main application controller */
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
 
-  /* ---- Clear old demo data (one-time reset) ---- */
-  const INIT_KEY = 'expenseiq_v2_init';
-  if (!localStorage.getItem(INIT_KEY)) {
-    localStorage.removeItem(STORAGE_KEY);
-    localStorage.setItem(INIT_KEY, '1');
+  /* ---- Init IndexedDB (includes one-time migration from localStorage) ---- */
+  try {
+    await initDB();
+  } catch (err) {
+    console.error('[ExpenseIQ] DB init failed:', err);
   }
 
   /* ---- Page Navigation ---- */
-  const pages   = document.querySelectorAll('.page');
+  const pages    = document.querySelectorAll('.page');
   const navItems = document.querySelectorAll('.nav-item');
 
   function navigateTo(pageName) {
-    pages.forEach(p => p.classList.toggle('active', p.id === `page-${pageName}`));
+    pages.forEach(p    => p.classList.toggle('active', p.id === `page-${pageName}`));
     navItems.forEach(n => n.classList.toggle('active', n.dataset.page === pageName));
     closeSidebar();
-    // Refresh charts when navigating to dashboard
-    if (pageName === 'dashboard') {
-      refreshAll();
-    }
+    if (pageName === 'dashboard') refreshAll();
   }
 
   navItems.forEach(item => {
@@ -30,7 +27,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // "View All" link in dashboard
   document.querySelectorAll('[data-page]').forEach(el => {
     if (el.classList.contains('link')) {
       el.addEventListener('click', e => {
@@ -45,10 +41,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('expenseiq_theme', theme);
     const isDark = theme === 'dark';
-    document.getElementById('themeIcon').textContent   = isDark ? '☀️' : '🌙';
-    document.getElementById('themeLabel').textContent  = isDark ? 'Light Mode' : 'Dark Mode';
-    document.getElementById('themeToggleMobile').textContent = isDark ? '☀️' : '🌙';
-    // Re-render charts with new theme colors
+    document.getElementById('themeIcon').textContent          = isDark ? '☀️' : '🌙';
+    document.getElementById('themeLabel').textContent         = isDark ? 'Light Mode' : 'Dark Mode';
+    document.getElementById('themeToggleMobile').textContent  = isDark ? '☀️' : '🌙';
     setTimeout(refreshCharts, 100);
   }
 
@@ -57,24 +52,59 @@ document.addEventListener('DOMContentLoaded', () => {
     applyTheme(current === 'dark' ? 'light' : 'dark');
   }
 
-  const savedTheme = localStorage.getItem('expenseiq_theme') || 'dark';
-  applyTheme(savedTheme);
-
+  applyTheme(localStorage.getItem('expenseiq_theme') || 'dark');
   document.getElementById('themeToggle').addEventListener('click', toggleTheme);
   document.getElementById('themeToggleMobile').addEventListener('click', toggleTheme);
 
   /* ---- Mobile Sidebar ---- */
-  function openSidebar() {
-    document.getElementById('sidebar').classList.add('open');
-    overlay.classList.add('active');
-  }
-
   const overlay = document.createElement('div');
   overlay.className = 'sidebar-overlay';
   document.body.appendChild(overlay);
   overlay.addEventListener('click', closeSidebar);
+  document.getElementById('hamburger').addEventListener('click', () => {
+    document.getElementById('sidebar').classList.add('open');
+    overlay.classList.add('active');
+  });
 
-  document.getElementById('hamburger').addEventListener('click', openSidebar);
+  /* ---- Month Selector ---- */
+  const monthPicker = document.getElementById('dashboardMonthPicker');
+  const prevBtn     = document.getElementById('prevMonthBtn');
+  const nextBtn     = document.getElementById('nextMonthBtn');
+
+  if (monthPicker) {
+    const now = new Date();
+    /* Prevent picking future months */
+    monthPicker.max = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    monthPicker.addEventListener('change', () => {
+      const val = monthPicker.value;
+      if (!val) return;
+      const [y, m] = val.split('-').map(Number);
+      setDashboardMonth(y, m - 1);
+      refreshAll();
+    });
+  }
+
+  if (prevBtn) {
+    prevBtn.addEventListener('click', () => {
+      const d = new Date(dashboardYear, dashboardMonth - 1, 1);
+      setDashboardMonth(d.getFullYear(), d.getMonth());
+      refreshAll();
+    });
+  }
+
+  if (nextBtn) {
+    nextBtn.addEventListener('click', () => {
+      const now = new Date();
+      const d   = new Date(dashboardYear, dashboardMonth + 1, 1);
+      if (
+        d.getFullYear() > now.getFullYear() ||
+        (d.getFullYear() === now.getFullYear() && d.getMonth() > now.getMonth())
+      ) return;
+      setDashboardMonth(d.getFullYear(), d.getMonth());
+      refreshAll();
+    });
+  }
 
   /* ---- Add Expense Buttons ---- */
   document.getElementById('addExpenseBtn').addEventListener('click', openAddModal);
@@ -86,7 +116,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('expenseModal').addEventListener('click', e => {
     if (e.target === document.getElementById('expenseModal')) closeModal();
   });
-
   document.getElementById('budgetModalClose').addEventListener('click', closeBudgetModal);
   document.getElementById('cancelBudgetBtn').addEventListener('click', closeBudgetModal);
   document.getElementById('budgetModal').addEventListener('click', e => {
@@ -94,10 +123,10 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   /* ---- Expense Form Submit ---- */
-  document.getElementById('expenseForm').addEventListener('submit', e => {
+  document.getElementById('expenseForm').addEventListener('submit', async e => {
     e.preventDefault();
-    const id     = document.getElementById('expenseId').value;
-    const data   = {
+    const id   = document.getElementById('expenseId').value;
+    const data = {
       description: document.getElementById('expenseDesc').value.trim(),
       amount:      parseFloat(document.getElementById('expenseAmount').value),
       date:        document.getElementById('expenseDate').value,
@@ -111,26 +140,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (id) {
-      updateExpense(id, data);
+      await updateExpense(id, data);
       showToast('Expense updated!', 'success');
     } else {
-      addExpense(data);
+      await addExpense(data);
       showToast('Expense added!', 'success');
     }
-
     closeModal();
     refreshAll();
   });
 
   /* ---- Budget Form Submit ---- */
-  document.getElementById('budgetForm').addEventListener('submit', e => {
+  document.getElementById('budgetForm').addEventListener('submit', async e => {
     e.preventDefault();
     const category = document.getElementById('budgetCategory').value;
     const amount   = parseFloat(document.getElementById('budgetAmount').value);
     if (!amount || amount < 0) { showToast('Enter a valid budget amount', 'error'); return; }
-    setBudget(category, amount);
+    await setBudget(category, amount);
     closeBudgetModal();
-    renderBudgetCards();
+    await renderBudgetCards();
     showToast(`Budget set for ${category}!`, 'success');
   });
 
@@ -140,19 +168,13 @@ document.addEventListener('DOMContentLoaded', () => {
     clearTimeout(filterTimeout);
     filterTimeout = setTimeout(() => renderExpenseTable(getCurrentFilters()), 250);
   }
-
   ['searchInput','filterCategory','filterDateFrom','filterDateTo','filterAmtMin','filterAmtMax'].forEach(id => {
     document.getElementById(id)?.addEventListener('input', debounceFilter);
     document.getElementById(id)?.addEventListener('change', debounceFilter);
   });
-
   document.getElementById('clearFiltersBtn').addEventListener('click', () => {
-    document.getElementById('searchInput').value    = '';
-    document.getElementById('filterCategory').value = '';
-    document.getElementById('filterDateFrom').value = '';
-    document.getElementById('filterDateTo').value   = '';
-    document.getElementById('filterAmtMin').value   = '';
-    document.getElementById('filterAmtMax').value   = '';
+    ['searchInput','filterCategory','filterDateFrom','filterDateTo','filterAmtMin','filterAmtMax']
+      .forEach(id => { document.getElementById(id).value = ''; });
     renderExpenseTable({});
   });
 
@@ -161,7 +183,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('exportPDFBtn').addEventListener('click', exportPDF);
 
   /* ---- Initial render ---- */
-  refreshAll();
+  await refreshAll();
   navigateTo('dashboard');
 });
 
